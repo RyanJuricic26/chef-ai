@@ -1,7 +1,7 @@
 """
 Test script for the fetch_recipes workflow
 """
-from agents.fetch_recipes.graph import graph, AgentState
+from agents.fetch_recipes.graph import graph
 
 
 def test_workflow(query: str):
@@ -11,21 +11,21 @@ def test_workflow(query: str):
     print(f"{'='*60}\n")
 
     # Create initial state
-    initial_state = AgentState(user_query=query)
+    initial_state = {"user_query": query}
 
     # Run the workflow
     result = graph.invoke(initial_state)
 
     # Print results
-    print("Search Mode:", result.search_mode)
-    if result.user_ingredients:
-        print("Detected Ingredients:", ", ".join(result.user_ingredients))
-    print(f"\nFound {len(result.recipes)} total recipes")
-    print(f"Filtered to {len(result.filtered_recipes)} recipes\n")
+    print("Search Mode:", result.get("search_mode"))
+    if result.get("user_ingredients"):
+        print("Detected Ingredients:", ", ".join(result["user_ingredients"]))
+    print(f"\nFound {len(result.get('recipes', []))} total recipes")
+    print(f"Filtered to {len(result.get('filtered_recipes', []))} recipes\n")
 
     print("RECOMMENDATIONS:")
     print("-" * 60)
-    print(result.recommendations)
+    print(result.get("recommendations"))
     print("\n")
 
 

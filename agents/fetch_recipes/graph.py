@@ -44,7 +44,7 @@ def classify_query(state: AgentState, config: RunnableConfig) -> AgentState:
     llm = ChatOpenAI(model=OPENAI_MODEL, api_key=OPENAI_API_KEY, temperature=0)
 
     # Invoke the prompt
-    prompt = CLASSIFY_QUERY_PROMPT.invoke(user_query=state.user_query)
+    prompt = CLASSIFY_QUERY_PROMPT.invoke({"user_query": state.user_query})
 
     # Get classification
     response = llm.invoke(prompt)
@@ -68,7 +68,7 @@ def fetch_recipes(state: AgentState, config: RunnableConfig) -> AgentState:
 
     if state.search_mode == "ingredients":
         # Extract ingredients from user query using LLM
-        prompt = EXTRACT_INGREDIENTS_PROMPT.invoke(user_query=state.user_query)
+        prompt = EXTRACT_INGREDIENTS_PROMPT.invoke({"user_query": state.user_query})
         response = llm.invoke(prompt)
         ingredients_text = response.content.strip()
 
@@ -86,7 +86,7 @@ def fetch_recipes(state: AgentState, config: RunnableConfig) -> AgentState:
 
     elif state.search_mode == "name":
         # Extract search term using LLM
-        prompt = EXTRACT_SEARCH_TERM_PROMPT.invoke(user_query=state.user_query)
+        prompt = EXTRACT_SEARCH_TERM_PROMPT.invoke({"user_query": state.user_query})
         response = llm.invoke(prompt)
         search_term = response.content.strip()
 
@@ -138,11 +138,11 @@ def generate_recommendations(state: AgentState, config: RunnableConfig) -> Agent
         ingredients_context = f"\n\nUser's Available Ingredients: {', '.join(state.user_ingredients)}"
 
     # Invoke the prompt
-    prompt = GENERATE_RECOMMENDATIONS_PROMPT.invoke(
-        user_query=state.user_query,
-        recipes_context=recipes_context,
-        ingredients_context=ingredients_context
-    )
+    prompt = GENERATE_RECOMMENDATIONS_PROMPT.invoke({
+        "user_query": state.user_query,
+        "recipes_context": recipes_context,
+        "ingredients_context": ingredients_context
+    })
 
     # Get LLM response
     response = llm.invoke(prompt)
