@@ -114,6 +114,14 @@ def seed_recipes():
     ]
 
     for recipe_data in recipes:
+        # Check if recipe already exists
+        cur.execute("SELECT id FROM recipes WHERE name = ?", (recipe_data["name"],))
+        existing = cur.fetchone()
+
+        if existing:
+            print(f"Recipe '{recipe_data['name']}' already exists, skipping...")
+            continue
+
         # Insert recipe
         cur.execute("""
             INSERT INTO recipes (name, description, instructions, prep_time, cook_time, servings, difficulty, cuisine_type)
@@ -130,6 +138,7 @@ def seed_recipes():
         ))
 
         recipe_id = cur.lastrowid
+        print(f"Added recipe: {recipe_data['name']}")
 
         # Insert ingredients and link to recipe
         for ing_data in recipe_data["ingredients"]:

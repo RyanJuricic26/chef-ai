@@ -59,11 +59,25 @@ def init_database():
     )
     """)
 
+    # Starred recipes table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS starred_recipes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipe_id INTEGER NOT NULL,
+        user_id INTEGER DEFAULT 1,
+        starred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(recipe_id, user_id)
+    )
+    """)
+
     # Create indexes for better query performance
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_name ON recipes(name)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_name ON ingredients(name)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe ON recipe_ingredients(recipe_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_starred_recipes_user ON starred_recipes(user_id)")
 
     conn.commit()
     conn.close()
