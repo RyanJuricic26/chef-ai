@@ -25,11 +25,11 @@ st.set_page_config(page_title="Chef AI", page_icon="🍳", layout="centered")
 st.title("🍳 Chef AI – Your Personal Recipe Assistant")
 st.write("Tell me what ingredients you have or what type of recipe you're looking for.")
 
-# --- Try importing LangGraph workflow ---
+# --- Try importing orchestrator workflow ---
 try:
-    from agents.fetch_recipes.graph import graph
+    from agents.orchestrator.graph import graph as orchestrator_graph
 except Exception as e:
-    st.error("❌ Error importing agents.fetch_recipes.graph")
+    st.error("❌ Error importing agents.orchestrator.graph")
     st.exception(e)
     st.stop()
 
@@ -101,24 +101,38 @@ query = st.text_area(
     placeholder="Example: I have chicken, rice, lemons. What can I cook?"
 )
 
-if st.button("Find Recipes"):
+if st.button("Submit"):
     query = st.session_state.get("query_text", "")
     if not query.strip():
         st.warning("Please enter something first.")
     else:
-        with st.spinner("Searching your recipe catalog..."):
+        with st.spinner("Processing your request..."):
             try:
-                # Invoke the graph with a dictionary state
-                final = graph.invoke({"user_query": query})
+                # Invoke the orchestrator graph
+                result = orchestrator_graph.invoke({"user_input": query})
             except Exception as e:
-                st.error("❌ Error running the recipe agent.")
+                st.error("❌ Error running the Chef AI agent.")
                 st.exception(e)
                 st.stop()
 
-        # Save results into session_state so they persist on rerun
-        st.session_state["recommendations"] = final.get("recommendations", "")
-        st.session_state["recipes"] = final.get("filtered_recipes", [])
-        st.session_state["has_results"] = True
+        # Check intent and handle results
+        intent = result.get("intent")
+
+        if intent == "catalog_recipe":
+            # Show catalog result
+            if result.get("success"):
+                st.success(result.get("response"))
+                st.session_state["has_results"] = False  # Don't show recipe cards
+            else:
+                st.error(result.get("response"))
+                st.session_state["has_results"] = False
+
+        else:  # fetch_recipes intent
+            # Save results into session_state so they persist on rerun
+            fetch_result = result.get("fetch_recipes_result", {})
+            st.session_state["recommendations"] = result.get("response", "")
+            st.session_state["recipes"] = fetch_result.get("filtered_recipes", [])
+            st.session_state["has_results"] = True
 
 # --- Show results if we have any saved ---
 if st.session_state.get("has_results"):
