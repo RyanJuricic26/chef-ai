@@ -4,3 +4,5 @@
 __pychache__/
 *.__pychache__
 *.pyc
+test_*
+database/database_playground.ipynb

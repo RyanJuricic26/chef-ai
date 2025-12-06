@@ -14,7 +14,7 @@ def main():
 
     # Import workflows
     from agents.fetch_recipes.graph import graph as fetch_recipes_graph
-    from agents.recipe_catalog.graph import graph as recipe_catalog_graph
+    from agents.catalog_recipe.graph import graph as recipe_catalog_graph
 
     # Generate Mermaid diagrams
     print("\n1. Generating Fetch Recipes workflow diagram...")
