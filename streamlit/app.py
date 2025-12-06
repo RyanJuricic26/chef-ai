@@ -4,9 +4,6 @@ import tempfile
 import asyncio
 import uuid
 
-import numpy as np
-import sounddevice as sd
-import soundfile as sf
 import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -28,27 +25,13 @@ st.set_page_config(page_title="Chef AI", page_icon="🍳", layout="centered")
 st.title("🍳 Chef AI – Your Personal Recipe Assistant")
 st.write("Tell me what ingredients you have or what type of recipe you're looking for.")
 
-# --- Debug indicator ---
-st.write("App loaded ✅")
-
 # --- Try importing LangGraph workflow ---
 try:
-    from agents.fetch_recipes.graph import graph, AgentState
+    from agents.fetch_recipes.graph import graph
 except Exception as e:
     st.error("❌ Error importing agents.fetch_recipes.graph")
     st.exception(e)
     st.stop()
-
-def record_audio(duration: int = 5, samplerate: int = 16000):
-    """Record audio from the microphone and return a temp .wav file path."""
-    st.info(f"Recording for {duration} seconds... Speak now 🎤")
-    audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype="float32")
-    sd.wait()
-
-    # Save to a temporary WAV file
-    tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    sf.write(tmp_file.name, audio, samplerate)
-    return tmp_file.name
 
 async def tts_to_file(text: str, out_path: str):
     """Use Edge TTS to synthesize text to an MP3 file."""
@@ -68,15 +51,8 @@ def generate_tts_file(text: str) -> str | None:
 
 # --- Voice input section ---
 st.markdown("### 🎤 Voice input (optional)")
-col1, col2 = st.columns(2)
 
-with col1:
-    record = st.button("Record 5 seconds")
-
-with col2:
-    st.write("Or just type below ↓")
-
-# This will hold the text (typed or transcribed) across reruns
+# Initialize session state
 if "query_text" not in st.session_state:
     st.session_state["query_text"] = ""
 
@@ -88,19 +64,34 @@ if "recipes" not in st.session_state:
 if "has_results" not in st.session_state:
     st.session_state["has_results"] = False
 
-if record:
+# Audio input widget
+audio_input = st.audio_input("Record your recipe request")
+
+if audio_input is not None:
     try:
-        audio_path = record_audio(duration=5)
-        with open(audio_path, "rb") as f:
-            st.info("Transcribing your speech with Whisper…")
+        st.info("Transcribing your speech with Whisper…")
+
+        # Save audio to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            tmp_file.write(audio_input.getvalue())
+            tmp_path = tmp_file.name
+
+        # Transcribe using Whisper
+        with open(tmp_path, "rb") as f:
             transcription = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f
             )
+
+        # Update session state with transcription
         st.session_state["query_text"] = transcription.text
-        st.success("Transcription complete! You can edit it below if needed.")
+        st.success(f"✅ Transcribed: {transcription.text}")
+
+        # Clean up temp file
+        os.unlink(tmp_path)
+
     except Exception as e:
-        st.error("❌ Error recording or transcribing audio.")
+        st.error("❌ Error transcribing audio.")
         st.exception(e)
 
 # --- Main user input section ---
@@ -117,8 +108,8 @@ if st.button("Find Recipes"):
     else:
         with st.spinner("Searching your recipe catalog..."):
             try:
-                state = AgentState(user_query=query)
-                final = graph.invoke(state)   # final is a dict-like state
+                # Invoke the graph with a dictionary state
+                final = graph.invoke({"user_query": query})
             except Exception as e:
                 st.error("❌ Error running the recipe agent.")
                 st.exception(e)
@@ -166,6 +157,10 @@ if st.session_state.get("has_results"):
                     f"**Total Time:** {total_time} min · "
                     f"**Servings:** {recipe.get('servings', 'N/A')}"
                 )
+
+                # Show URL if available
+                if recipe.get("url"):
+                    st.write(f"**Source:** [View original recipe]({recipe['url']})")
 
                 st.write("### 🧂 Ingredients")
                 for ing in recipe.get("ingredients", []):
