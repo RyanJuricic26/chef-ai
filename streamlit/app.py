@@ -59,8 +59,6 @@ if "query_text" not in st.session_state:
 # Store results across reruns
 if "recommendations" not in st.session_state:
     st.session_state["recommendations"] = ""
-if "recipes" not in st.session_state:
-    st.session_state["recipes"] = []
 if "has_results" not in st.session_state:
     st.session_state["has_results"] = False
 
@@ -129,23 +127,20 @@ if st.button("Submit"):
 
         else:  # fetch_recipes intent
             # Save results into session_state so they persist on rerun
-            fetch_result = result.get("fetch_recipes_result", {})
             st.session_state["recommendations"] = result.get("response", "")
-            st.session_state["recipes"] = fetch_result.get("filtered_recipes", [])
             st.session_state["has_results"] = True
 
 # --- Show results if we have any saved ---
 if st.session_state.get("has_results"):
     recommendations = st.session_state.get("recommendations", "")
-    recipes = st.session_state.get("recipes", [])
 
-    # Recommendations text
-    st.subheader("🍽️ Recommendations")
+    # Display response
+    st.subheader("🍽️ Chef AI Response")
     st.write(recommendations)
 
     # Text-to-speech button
     if recommendations and recommendations.strip():
-        if st.button("🔊 Read recommendations aloud"):
+        if st.button("🔊 Read response aloud"):
             try:
                 audio_path = generate_tts_file(recommendations)
                 if audio_path:
@@ -155,33 +150,3 @@ if st.session_state.get("has_results"):
             except Exception as e:
                 st.error("❌ Error generating or playing audio.")
                 st.exception(e)
-
-    # Recipe list
-    st.subheader("📚 Matching Recipes")
-    if not recipes:
-        st.info("No recipes matched your request.")
-    else:
-        for recipe in recipes:
-            with st.expander(recipe["name"]):
-
-                st.write(f"**Description:** {recipe.get('description', 'No description available')}")
-                total_time = (recipe.get("prep_time") or 0) + (recipe.get("cook_time") or 0)
-                st.write(
-                    f"**Difficulty:** {recipe.get('difficulty', 'N/A')} · "
-                    f"**Total Time:** {total_time} min · "
-                    f"**Servings:** {recipe.get('servings', 'N/A')}"
-                )
-
-                # Show URL if available
-                if recipe.get("url"):
-                    st.write(f"**Source:** [View original recipe]({recipe['url']})")
-
-                st.write("### 🧂 Ingredients")
-                for ing in recipe.get("ingredients", []):
-                    qty = ing.get("quantity") or ""
-                    unit = ing.get("unit") or ""
-                    name = ing.get("ingredient_name") or ""
-                    st.write(f"- {qty} {unit} {name}".strip())
-
-                st.write("### 👩‍🍳 Instructions")
-                st.write(recipe.get("instructions", "No instructions available."))
