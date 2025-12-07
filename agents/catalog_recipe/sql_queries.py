@@ -24,8 +24,8 @@ def save_recipe_to_database(recipe_data: Dict[str, Any]) -> Optional[int]:
             INSERT INTO recipes (
                 name, description, instructions,
                 prep_time, cook_time, servings,
-                difficulty, cuisine_type, url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                difficulty, url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             recipe_data.get("name", ""),
             recipe_data.get("description"),
@@ -34,12 +34,47 @@ def save_recipe_to_database(recipe_data: Dict[str, Any]) -> Optional[int]:
             recipe_data.get("cook_time", 0),
             recipe_data.get("servings"),
             recipe_data.get("difficulty"),
-            recipe_data.get("cuisine_type"),
             recipe_data.get("url", "")
         ))
         
         recipe_id = cur.lastrowid
-        
+
+        # Process cuisine types
+        cuisine_types = recipe_data.get("cuisine_type", [])
+        # Handle both list and string formats
+        if isinstance(cuisine_types, str):
+            cuisine_types = [cuisine_types] if cuisine_types else []
+        elif not isinstance(cuisine_types, list):
+            cuisine_types = []
+
+        for cuisine_name in cuisine_types:
+            cuisine_name = cuisine_name.strip()
+            if not cuisine_name:
+                continue
+
+            # Get or create cuisine type
+            cur.execute("""
+                SELECT id FROM cuisine_types WHERE LOWER(name) = LOWER(?)
+            """, (cuisine_name,))
+
+            result = cur.fetchone()
+            if result:
+                cuisine_id = result[0]
+            else:
+                # Insert new cuisine type
+                cur.execute("""
+                    INSERT INTO cuisine_types (name)
+                    VALUES (?)
+                """, (cuisine_name,))
+                cuisine_id = cur.lastrowid
+
+            # Link recipe to cuisine type
+            cur.execute("""
+                INSERT OR IGNORE INTO recipe_cuisines
+                (recipe_id, cuisine_type_id)
+                VALUES (?, ?)
+            """, (recipe_id, cuisine_id))
+
         # Process ingredients
         ingredients = recipe_data.get("ingredients", [])
         for ing in ingredients:
@@ -86,6 +121,38 @@ def save_recipe_to_database(recipe_data: Dict[str, Any]) -> Optional[int]:
     except sqlite3.Error as e:
         if conn:
             conn.rollback()
+        raise Exception(f"Database error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_recipe_cuisine_types(recipe_id: int) -> list:
+    """
+    Get all cuisine types for a recipe.
+
+    Args:
+        recipe_id: ID of the recipe
+
+    Returns:
+        List of cuisine type names
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT ct.name
+            FROM cuisine_types ct
+            JOIN recipe_cuisines rc ON ct.id = rc.cuisine_type_id
+            WHERE rc.recipe_id = ?
+            ORDER BY ct.name
+        """, (recipe_id,))
+
+        return [row[0] for row in cur.fetchall()]
+
+    except sqlite3.Error as e:
         raise Exception(f"Database error: {str(e)}")
     finally:
         if conn:

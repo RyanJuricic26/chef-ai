@@ -29,9 +29,28 @@ def init_database():
         cook_time INTEGER,
         servings INTEGER,
         difficulty TEXT CHECK(difficulty IN ('easy', 'medium', 'hard')),
-        cuisine_type TEXT,
         url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # Cuisine types table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS cuisine_types (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE
+    )
+    """)
+
+    # Recipe-Cuisine junction table (many-to-many relationship)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS recipe_cuisines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipe_id INTEGER NOT NULL,
+        cuisine_type_id INTEGER NOT NULL,
+        FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+        FOREIGN KEY (cuisine_type_id) REFERENCES cuisine_types(id) ON DELETE CASCADE,
+        UNIQUE(recipe_id, cuisine_type_id)
     )
     """)
 
@@ -74,6 +93,9 @@ def init_database():
 
     # Create indexes for better query performance
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_name ON recipes(name)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cuisine_name ON cuisine_types(name)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_cuisines_recipe ON recipe_cuisines(recipe_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_cuisines_cuisine ON recipe_cuisines(cuisine_type_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_name ON ingredients(name)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe ON recipe_ingredients(recipe_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id)")
