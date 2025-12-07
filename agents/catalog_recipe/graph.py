@@ -4,9 +4,21 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+import json
 
 # local imports
-from .config import OPENAI_API_KEY, OPENAI_MODEL
+from .config import OPENAI_API_KEY, OPENAI_MODEL, REQUEST_TIMEOUT, USER_AGENT, DB_PATH
+from .catalog_utils import (
+    fetch_html_content,
+    parse_json_ld_from_html,
+    extract_recipe_from_json_ld,
+    clean_html_for_llm,
+    infer_difficulty,
+    strip_html_tags,
+    format_instructions
+)
+from .prompts import EXTRACT_RECIPE_FROM_HTML_PROMPT
+from .sql_queries import save_recipe_to_database
 
 
 # Define the Agent State
@@ -57,105 +69,259 @@ class AgentState(BaseModel):
 def fetch_webpage(state: AgentState, config: RunnableConfig) -> AgentState:
     """
     Fetch the webpage HTML content from the provided recipe URL.
-
-    This node should:
-    1. Make an HTTP request to state.recipe_url
-    2. Store the HTML content in state.html_content
-    3. Handle any network errors and set state.error_message if needed
     """
-    pass
+    try:
+        html_content = fetch_html_content(
+            state.recipe_url,
+            timeout=REQUEST_TIMEOUT,
+            user_agent=USER_AGENT
+        )
+        state.html_content = html_content
+    except Exception as e:
+        state.error_message = f"Failed to fetch webpage: {str(e)}"
+    
+    return state
 
 
 def parse_json_ld(state: AgentState, config: RunnableConfig) -> AgentState:
     """
     Attempt to parse JSON-LD Recipe schema from the HTML content.
-
-    This node should:
-    1. Search for <script type="application/ld+json"> tags in state.html_content
-    2. Parse the JSON and look for @type: "Recipe"
-    3. If found, store the structured data in state.json_ld_data
-    4. Extract recipe information according to schema.org Recipe specification
-    5. Populate state.recipe_data with extracted information
-    6. Set state.extraction_method = "json_ld"
-    7. If not found or parsing fails, leave state.json_ld_data as None
-
-    JSON-LD fields to extract:
-    - name
-    - description
-    - recipeInstructions (can be array or string)
-    - prepTime (ISO 8601 duration, convert to minutes)
-    - cookTime (ISO 8601 duration, convert to minutes)
-    - recipeYield (servings)
-    - recipeIngredient (array of strings)
-    - recipeCuisine
     """
-    pass
+    if not state.html_content:
+        state.error_message = "No HTML content available"
+        return state
+    
+    try:
+        json_ld_data = parse_json_ld_from_html(state.html_content)
+        
+        if json_ld_data:
+            state.json_ld_data = json_ld_data
+            recipe_data = extract_recipe_from_json_ld(json_ld_data, state.recipe_url)
+            state.recipe_data = recipe_data
+            state.extraction_method = "json_ld"
+            
+            # Infer difficulty if not set
+            if not state.recipe_data.get("difficulty"):
+                state.recipe_data["difficulty"] = infer_difficulty(
+                    state.recipe_data.get("instructions", ""),
+                    state.recipe_data.get("prep_time", 0),
+                    state.recipe_data.get("cook_time", 0)
+                )
+        else:
+            state.json_ld_data = None
+    except Exception as e:
+        state.error_message = f"Failed to parse JSON-LD: {str(e)}"
+        state.json_ld_data = None
+    
+    return state
 
 
 def extract_with_llm(state: AgentState, config: RunnableConfig) -> AgentState:
     """
     Use LLM to extract recipe information from HTML when JSON-LD is not available.
-
-    This node should:
-    1. Take state.html_content and clean it (remove scripts, styles, etc.)
-    2. Use an LLM prompt to extract recipe information
-    3. Ask the LLM to structure the response as JSON with all required fields
-    4. Parse the LLM response and populate state.recipe_data
-    5. Set state.extraction_method = "llm_html"
-    6. Infer difficulty level based on instructions complexity if not explicit
-    7. Categorize ingredients (meat, vegetable, dairy, spice, grain, etc.)
-
-    The LLM should extract:
-    - Recipe name
-    - Description
-    - Step-by-step instructions
-    - Prep time (in minutes)
-    - Cook time (in minutes)
-    - Number of servings
-    - Difficulty level (easy/medium/hard)
-    - Cuisine type
-    - Ingredients list with quantities, units, and categories
     """
-    pass
+    if not state.html_content:
+        state.error_message = "No HTML content available"
+        return state
+    
+    if not OPENAI_API_KEY:
+        state.error_message = "OpenAI API key not configured"
+        return state
+    
+    try:
+        # Clean HTML for LLM
+        cleaned_html = clean_html_for_llm(state.html_content)
+        
+        # Initialize LLM
+        llm = ChatOpenAI(
+            model=OPENAI_MODEL,
+            api_key=OPENAI_API_KEY,
+            temperature=0
+        )
+        
+        # Create prompt chain
+        chain = EXTRACT_RECIPE_FROM_HTML_PROMPT | llm
+        
+        # Get LLM response
+        response = chain.invoke({"html_content": cleaned_html})
+        
+        # Extract JSON from response
+        content = response.content.strip()
+        
+        # Remove markdown code blocks if present
+        if content.startswith("```json"):
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        
+        # Parse JSON
+        recipe_data = json.loads(content)
+        
+        # Clean HTML tags from all text fields
+        if "name" in recipe_data and recipe_data["name"]:
+            recipe_data["name"] = strip_html_tags(str(recipe_data["name"]))
+        if "description" in recipe_data and recipe_data["description"]:
+            recipe_data["description"] = strip_html_tags(str(recipe_data["description"]))
+        if "instructions" in recipe_data and recipe_data["instructions"]:
+            cleaned_instructions = strip_html_tags(str(recipe_data["instructions"]))
+            formatted = format_instructions(cleaned_instructions)
+            # Ensure we don't lose the instructions - use formatted if available, otherwise use cleaned
+            recipe_data["instructions"] = formatted if formatted else cleaned_instructions
+        
+        # Clean ingredients
+        if "ingredients" in recipe_data and isinstance(recipe_data["ingredients"], list):
+            for ing in recipe_data["ingredients"]:
+                if isinstance(ing, dict):
+                    if "name" in ing:
+                        ing["name"] = strip_html_tags(str(ing["name"]))
+                    if "quantity" in ing:
+                        ing["quantity"] = strip_html_tags(str(ing["quantity"])) if ing["quantity"] else ""
+                    if "unit" in ing:
+                        ing["unit"] = strip_html_tags(str(ing["unit"])) if ing["unit"] else ""
+        
+        # Ensure URL is set
+        recipe_data["url"] = state.recipe_url
+        
+        # Ensure required fields
+        if "name" not in recipe_data or not recipe_data["name"]:
+            state.error_message = "LLM extraction failed: missing recipe name"
+            return state
+        
+        if "instructions" not in recipe_data or not recipe_data["instructions"]:
+            state.error_message = "LLM extraction failed: missing instructions"
+            return state
+        
+        if "ingredients" not in recipe_data or not recipe_data["ingredients"]:
+            state.error_message = "LLM extraction failed: missing ingredients"
+            return state
+        
+        # Set defaults
+        if "prep_time" not in recipe_data:
+            recipe_data["prep_time"] = 0
+        if "cook_time" not in recipe_data:
+            recipe_data["cook_time"] = 0
+        if "difficulty" not in recipe_data or not recipe_data["difficulty"]:
+            recipe_data["difficulty"] = infer_difficulty(
+                recipe_data.get("instructions", ""),
+                recipe_data.get("prep_time", 0),
+                recipe_data.get("cook_time", 0)
+            )
+        
+        state.recipe_data = recipe_data
+        state.extraction_method = "llm_html"
+        
+    except json.JSONDecodeError as e:
+        state.error_message = f"Failed to parse LLM response as JSON: {str(e)}"
+    except Exception as e:
+        state.error_message = f"LLM extraction failed: {str(e)}"
+    
+    return state
 
 
 def validate_recipe_data(state: AgentState, config: RunnableConfig) -> AgentState:
     """
     Validate that all required recipe fields are present and properly formatted.
-
-    This node should:
-    1. Check that state.recipe_data contains all required fields:
-       - name (required)
-       - instructions (required)
-       - ingredients (required, non-empty list)
-    2. Validate data types and ranges:
-       - times should be positive integers
-       - difficulty should be 'easy', 'medium', or 'hard'
-       - servings should be positive
-    3. Set default values for optional fields if missing
-    4. Ensure state.recipe_data["url"] is set to state.recipe_url
-    5. If validation fails, set state.error_message with details
     """
-    pass
+    if not state.recipe_data:
+        state.error_message = "No recipe data to validate"
+        return state
+    
+    recipe_data = state.recipe_data
+    
+    # Check required fields
+    if not recipe_data.get("name"):
+        state.error_message = "Validation failed: recipe name is required"
+        return state
+    
+    if not recipe_data.get("instructions"):
+        state.error_message = "Validation failed: instructions are required"
+        return state
+    
+    if not recipe_data.get("ingredients") or not isinstance(recipe_data["ingredients"], list) or len(recipe_data["ingredients"]) == 0:
+        state.error_message = "Validation failed: at least one ingredient is required"
+        return state
+    
+    # Validate and set defaults
+    if "prep_time" not in recipe_data or recipe_data["prep_time"] is None:
+        recipe_data["prep_time"] = 0
+    else:
+        recipe_data["prep_time"] = max(0, int(recipe_data["prep_time"]))
+    
+    if "cook_time" not in recipe_data or recipe_data["cook_time"] is None:
+        recipe_data["cook_time"] = 0
+    else:
+        recipe_data["cook_time"] = max(0, int(recipe_data["cook_time"]))
+    
+    if "servings" in recipe_data and recipe_data["servings"] is not None:
+        recipe_data["servings"] = max(1, int(recipe_data["servings"]))
+    
+    # Validate difficulty
+    if "difficulty" not in recipe_data or recipe_data["difficulty"] not in ["easy", "medium", "hard"]:
+        recipe_data["difficulty"] = infer_difficulty(
+            recipe_data.get("instructions", ""),
+            recipe_data.get("prep_time", 0),
+            recipe_data.get("cook_time", 0)
+        )
+    
+    # Ensure URL is set
+    recipe_data["url"] = state.recipe_url
+    
+    # Validate ingredients
+    valid_ingredients = []
+    for ing in recipe_data["ingredients"]:
+        if isinstance(ing, dict) and ing.get("name"):
+            # Ensure all ingredient fields exist
+            valid_ing = {
+                "name": str(ing.get("name", "")).strip(),
+                "quantity": str(ing.get("quantity", "")).strip() if ing.get("quantity") else "",
+                "unit": str(ing.get("unit", "")).strip() if ing.get("unit") else "",
+                "category": str(ing.get("category", "other")).strip() if ing.get("category") else "other"
+            }
+            if valid_ing["name"]:
+                valid_ingredients.append(valid_ing)
+    
+    if not valid_ingredients:
+        state.error_message = "Validation failed: no valid ingredients found"
+        return state
+    
+    recipe_data["ingredients"] = valid_ingredients
+    
+    # Set optional defaults
+    if "description" not in recipe_data:
+        recipe_data["description"] = None
+    
+    if "cuisine_type" not in recipe_data:
+        recipe_data["cuisine_type"] = None
+    
+    state.recipe_data = recipe_data
+    return state
 
 
 def save_to_database(state: AgentState, config: RunnableConfig) -> AgentState:
     """
     Save the validated recipe data to the SQLite database.
-
-    This node should:
-    1. Connect to the database
-    2. Insert the recipe into the recipes table
-    3. Get the recipe_id from the insert
-    4. For each ingredient:
-       a. Insert or get the ingredient from ingredients table
-       b. Link to recipe in recipe_ingredients table with quantity/unit
-    5. Store the recipe_id in state.recipe_id
-    6. Set state.success = True on successful save
-    7. On error, set state.error_message and state.success = False
-    8. Commit the transaction and close the connection
     """
-    pass
+    if not state.recipe_data:
+        state.error_message = "No recipe data to save"
+        state.success = False
+        return state
+    
+    try:
+        recipe_id = save_recipe_to_database(state.recipe_data)
+        if recipe_id:
+            state.recipe_id = recipe_id
+            state.success = True
+        else:
+            state.error_message = "Failed to save recipe to database"
+            state.success = False
+    except Exception as e:
+        state.error_message = f"Database save failed: {str(e)}"
+        state.success = False
+    
+    return state
 
 
 # Conditional routing functions
@@ -163,23 +329,27 @@ def save_to_database(state: AgentState, config: RunnableConfig) -> AgentState:
 def route_after_json_ld(state: AgentState) -> str:
     """
     Route to LLM extraction if JSON-LD parsing failed, otherwise validate.
-
-    Returns:
-        "extract_with_llm" if state.json_ld_data is None
-        "validate_recipe_data" if JSON-LD data was successfully extracted
     """
-    pass
+    if state.error_message:
+        return END
+    
+    if state.json_ld_data is None or not state.recipe_data:
+        return "extract_with_llm"
+    else:
+        return "validate_recipe_data"
 
 
 def route_after_validation(state: AgentState) -> str:
     """
     Route to database save if validation passed, otherwise end with error.
-
-    Returns:
-        "save_to_database" if state.recipe_data is valid and no error_message
-        END if validation failed
     """
-    pass
+    if state.error_message:
+        return END
+    
+    if state.recipe_data:
+        return "save_to_database"
+    else:
+        return END
 
 
 # Build the graph
@@ -202,7 +372,8 @@ builder.add_conditional_edges(
     route_after_json_ld,
     {
         "extract_with_llm": "extract_with_llm",
-        "validate_recipe_data": "validate_recipe_data"
+        "validate_recipe_data": "validate_recipe_data",
+        END: END
     }
 )
 

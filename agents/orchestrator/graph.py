@@ -101,13 +101,13 @@ def invoke_fetch_recipes(state: OrchestratorState, config: RunnableConfig) -> Or
 
 def invoke_catalog_recipe(state: OrchestratorState, config: RunnableConfig) -> OrchestratorState:
     """
-    Invoke the recipe_catalog workflow and store results
+    Invoke the catalog_recipe workflow and store results
     """
-    from agents.recipe_catalog.graph import graph as recipe_catalog_graph
+    from agents.catalog_recipe.graph import graph as catalog_recipe_graph
 
     try:
-        # Invoke recipe_catalog graph
-        result = recipe_catalog_graph.invoke({"recipe_url": state.recipe_url})
+        # Invoke catalog_recipe graph
+        result = catalog_recipe_graph.invoke({"recipe_url": state.recipe_url})
 
         # Store results
         state.catalog_recipe_result = result

@@ -259,6 +259,44 @@ else:
                         # URL if available
                         if recipe.get('url'):
                             st.markdown(f"**Source:** [View original recipe]({recipe['url']})")
+                        
+                        # Delete button with confirmation
+                        st.markdown("---")
+                        delete_key = f"delete_{recipe_id}"
+                        confirm_key = f"confirm_delete_{recipe_id}"
+                        
+                        # Initialize confirmation state
+                        if confirm_key not in st.session_state:
+                            st.session_state[confirm_key] = False
+                        
+                        if st.session_state[confirm_key]:
+                            # Show confirmation
+                            st.warning(f"⚠️ Are you sure you want to delete '{recipe['name']}'?")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("✅ Confirm Delete", key=f"confirm_{recipe_id}", type="primary"):
+                                    try:
+                                        from agents.catalog_recipe.sql_queries import delete_recipe_from_database
+                                        success = delete_recipe_from_database(recipe_id)
+                                        if success:
+                                            st.session_state[confirm_key] = False
+                                            st.success(f"✅ Recipe '{recipe['name']}' deleted successfully!")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Recipe not found or could not be deleted.")
+                                            st.session_state[confirm_key] = False
+                                    except Exception as e:
+                                        st.error(f"❌ Error deleting recipe: {str(e)}")
+                                        st.session_state[confirm_key] = False
+                            with col2:
+                                if st.button("❌ Cancel", key=f"cancel_{recipe_id}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                        else:
+                            # Show delete button
+                            if st.button("🗑️ Delete Recipe", key=delete_key, type="secondary"):
+                                st.session_state[confirm_key] = True
+                                st.rerun()
 
 # Footer
 st.markdown("---")
