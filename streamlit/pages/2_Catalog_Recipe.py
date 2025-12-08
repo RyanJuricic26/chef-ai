@@ -24,26 +24,27 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
-# Example URLs for testing
+# How it works
 st.markdown("### 📝 How it works")
 st.info("""
-1. **Enter a recipe URL** - The agent will fetch the webpage
-2. **JSON-LD Extraction** - First tries to extract structured recipe data (preferred method)
-3. **LLM Fallback** - If JSON-LD isn't available, uses AI to extract recipe information
-4. **Validation** - Ensures all required fields are present
-5. **Save to Database** - Adds the recipe to your recipe library
+1. **Enter a recipe URL** - Paste the link to any recipe webpage
+2. **Smart Extraction** - Automatically extracts recipe details, ingredients, and instructions
+3. **Validation** - Ensures all important information is captured
+4. **Save to Library** - Adds the recipe to your personal collection
 """)
 
 # Example recipe URLs
-with st.expander("💡 Example Recipe URLs to Test"):
+with st.expander("💡 Popular Recipe Websites"):
     st.markdown("""
-    Try these recipe URLs that typically have JSON-LD structured data:
-    - AllRecipes: https://www.allrecipes.com/recipe/...
-    - Food Network: https://www.foodnetwork.com/recipes/...
-    - BBC Good Food: https://www.bbcgoodfood.com/recipes/...
-    - Serious Eats: https://www.seriouseats.com/...
-    
-    Or any recipe website - the agent will try JSON-LD first, then fall back to LLM extraction.
+    This works great with recipes from these popular sites:
+    - **AllRecipes**: https://www.allrecipes.com
+    - **Food Network**: https://www.foodnetwork.com
+    - **BBC Good Food**: https://www.bbcgoodfood.com
+    - **Serious Eats**: https://www.seriouseats.com
+    - **Bon Appétit**: https://www.bonappetit.com
+    - **Epicurious**: https://www.epicurious.com
+
+    Works with most recipe websites - just paste the URL!
     """)
 
 # Recipe URL input
@@ -107,14 +108,10 @@ if st.session_state.catalog_result:
             st.markdown("### 📋 Extracted Recipe Data")
             
             # Basic info
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric("Name", recipe_data.get("name", "N/A"))
+                st.metric("Recipe Name", recipe_data.get("name", "N/A"))
             with col2:
-                extraction_method = result.get("extraction_method", "unknown")
-                method_emoji = "📊" if extraction_method == "json_ld" else "🤖"
-                st.metric("Method", f"{method_emoji} {extraction_method}")
-            with col3:
                 st.metric("Difficulty", recipe_data.get("difficulty", "N/A") or "N/A")
             
             # Description
@@ -185,24 +182,9 @@ if st.session_state.catalog_result:
 
 # Display error if any
 if st.session_state.catalog_error:
-    st.error(f"**Exception:** {st.session_state.catalog_error}")
-
-# Debug section (collapsible)
-with st.expander("🔍 Debug Information"):
-    if st.session_state.catalog_result:
-        st.json(st.session_state.catalog_result)
-    
-    st.markdown("### Workflow Steps")
-    st.info("""
-    The catalog recipe agent follows these steps:
-    1. **fetch_webpage** - Downloads HTML from the URL
-    2. **parse_json_ld** - Attempts to extract JSON-LD Recipe schema
-    3. **extract_with_llm** - Falls back to LLM extraction if JSON-LD not found
-    4. **validate_recipe_data** - Validates all required fields
-    5. **save_to_database** - Saves to SQLite database
-    """)
+    st.error(f"**Error Details:** {st.session_state.catalog_error}")
 
 # Footer
 st.markdown("---")
-st.caption("💡 Tip: Recipes with JSON-LD structured data will be extracted more accurately and quickly!")
+st.caption("💡 Tip: The more detailed the recipe webpage, the better the extraction will be!")
 
