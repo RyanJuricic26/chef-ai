@@ -32,6 +32,47 @@ def load_starred_recipes():
     conn.close()
     return starred_ids
 
+def load_keto_recipes():
+    """Load keto-friendly recipes from database (recipes without grain/pasta ingredients)"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Get all recipes that are keto-friendly (no grain or pasta ingredients)
+    cur.execute("""
+        SELECT DISTINCT r.id
+        FROM recipes r
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM recipe_ingredients ri
+            JOIN ingredients i ON ri.ingredient_id = i.id
+            WHERE ri.recipe_id = r.id AND i.category IN ('grain', 'pasta')
+        )
+    """)
+    keto_ids = {row[0] for row in cur.fetchall()}
+
+    conn.close()
+    return keto_ids
+
+def load_vegetarian_recipes():
+    """Load vegetarian-friendly recipes from database (recipes without meat ingredients)"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # Get all recipes that are vegetarian-friendly (no meat ingredients)
+    cur.execute("""
+        SELECT DISTINCT r.id
+        FROM recipes r
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM recipe_ingredients ri
+            JOIN ingredients i ON ri.ingredient_id = i.id
+            WHERE ri.recipe_id = r.id AND i.category IN ('meat')
+        )
+    """)
+    vegetarian_ids = {row[0] for row in cur.fetchall()}
+
+    conn.close()
+    return vegetarian_ids
 
 def save_star_to_db(recipe_id, is_starred):
     """Save or remove star in database"""
@@ -60,6 +101,15 @@ if "starred_recipes" not in st.session_state:
     # Load starred recipes from database
     st.session_state.starred_recipes = load_starred_recipes()
 
+# Initialize session state for keto recipes
+if "keto_recipes" not in st.session_state:
+    # Load keto recipes from database
+    st.session_state.keto_recipes = load_keto_recipes()
+
+# Initialize session state for vegetarian recipes
+if "vegetarian_recipes" not in st.session_state:
+    # Load vegetarian recipes from database
+    st.session_state.vegetarian_recipes = load_vegetarian_recipes()
 
 def get_all_recipes():
     """Fetch all recipes from the database with their details"""
@@ -118,7 +168,13 @@ with st.sidebar:
 
     # Show starred only
     show_starred_only = st.checkbox("⭐ Show starred only", value=False)
-
+    
+    # Show keto-friendly only
+    show_keto_only = st.checkbox("🥑 Show keto-friendly only", value=False)
+    
+    # Show vegetarian-friendly only
+    show_vegetarian_only = st.checkbox("🥦 Show vegetarian-friendly only", value=False)
+    
     st.markdown("---")
 
     # Difficulty filter
@@ -146,6 +202,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(f"⭐ {len(st.session_state.starred_recipes)} recipes starred")
+    st.caption(f"🥑 {len(st.session_state.keto_recipes)} keto-friendly recipes")
+    st.caption(f"🥦 {len(st.session_state.vegetarian_recipes)} vegetarian-friendly recipes")
 
 # Fetch all recipes
 try:
@@ -160,6 +218,14 @@ filtered_recipes = all_recipes
 # Filter by starred
 if show_starred_only:
     filtered_recipes = [r for r in filtered_recipes if r['id'] in st.session_state.starred_recipes]
+
+# Filter by keto-friendly
+if show_keto_only:
+    filtered_recipes = [r for r in filtered_recipes if r['id'] in st.session_state.keto_recipes]
+
+# Filter by vegetarian-friendly
+if show_vegetarian_only:
+    filtered_recipes = [r for r in filtered_recipes if r['id'] in st.session_state.vegetarian_recipes]
 
 # Filter by difficulty
 if difficulty_filter:
